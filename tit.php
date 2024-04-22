@@ -47,11 +47,10 @@ if (!defined("TIT_INCLUSION"))
 ////// DO NOT EDIT BEYOND THIS IF YOU DON'T KNOW WHAT YOU'RE DOING /////
 ////////////////////////////////////////////////////////////////////////
 
-if (get_magic_quotes_gpc()){
+//if (get_magic_quotes_gpc()){
 	foreach($_GET  as $k=>$v) $_GET [$k] = stripslashes($v);
 	foreach($_POST as $k=>$v) $_POST[$k] = stripslashes($v);
-}
-
+//}
 // Here we go...
 session_start();
 
@@ -63,15 +62,19 @@ if (isset($_POST["login"])){
 		$_SESSION['tit']=$USERS[$n];
 
 		header("Location: ".$_SERVER["REQUEST_URI"]);
+		exit;
 	}
 	else $message = "Invalid username or password";
 }
 
+
 // check for logout
 if (isset($_GET['logout'])){
 	$_SESSION['tit']=array();  // username
-	header("Location: ".$_SERVER["REQUEST_URI"]);
+	header("Location: ".$_SERVER["SCRIPT_NAME"]);
+	exit;
 }
+
 
 $login_html = "<html><head><title>Tiny Issue Tracker</title><style>body,input{font-family:sans-serif;font-size:11px;} label{display:block;}</style></head>
 							 <body><h2>$TITLE - Issue Tracker</h2><p>$message</p><form method='POST' action='".$_SERVER["REQUEST_URI"]."'>
@@ -81,15 +84,21 @@ $login_html = "<html><head><title>Tiny Issue Tracker</title><style>body,input{fo
 							 </form></body></html>";
 
 // show login page on bad credential
-if (check_credentials($_SESSION['tit']['username'], $_SESSION['tit']['password'])==-1) die($login_html);
+if (!isset($_SESSION['tit']['username']) || !isset($_SESSION['tit']['password']) || check_credentials($_SESSION['tit']['username'], $_SESSION['tit']['password'])==-1) die($login_html);
 
 // Check if db exists
 try{$db = new PDO($DB_CONNECTION, $DB_USERNAME, $DB_PASSWORD);}
 catch (PDOException $e) {die("DB Connection failed: ".$e->getMessage());}
 
+
+
 // create tables if not exist
-@$db->exec("CREATE TABLE issues (id INTEGER PRIMARY KEY, title TEXT, description TEXT, user TEXT, status INTEGER NOT NULL DEFAULT '0', priority INTEGER, notify_emails TEXT, entrytime DATETIME)");
-@$db->exec("CREATE TABLE comments (id INTEGER PRIMARY KEY, issue_id INTEGER, user TEXT, description TEXT, entrytime DATETIME)");
+$db->exec("CREATE TABLE if not exists issues (id INTEGER PRIMARY KEY, title TEXT, description TEXT, user TEXT, status INTEGER NOT NULL DEFAULT '0', priority INTEGER, notify_emails TEXT, entrytime DATETIME)");
+$db->exec("CREATE TABLE if not exists comments (id INTEGER PRIMARY KEY, issue_id INTEGER, user TEXT, description TEXT, entrytime DATETIME)");
+
+$issue = [];
+$comments = [];
+$status = 0;
 
 if (isset($_GET["id"])){
 	// show issue #id
@@ -99,6 +108,7 @@ if (isset($_GET["id"])){
 }
 
 // if no issue found, go to list mode
+
 if (count($issue)==0){
 
 	unset($issue, $comments);
@@ -123,9 +133,11 @@ else {
 	$mode="issue";
 }
 
+
 //
 // PROCESS ACTIONS
 //
+
 
 // Create / Edit issue
 if (isset($_POST["createissue"])){
@@ -370,23 +382,24 @@ function setWatch($id,$addToWatch){
 	<div id="menu">
 		<?php
 			foreach($STATUSES as $code=>$name) {
-				$style=(isset($_GET[status]) && $_GET[status]==$code) || (isset($issue) && $issue['status']==$code)?"style='font-weight:bold;'":"";
+				$style=(isset($_GET['status']) && $_GET['status']==$code) || (isset($issue) && $issue['status']==$code)?"style='font-weight:bold;'":"";
 				echo "<a href='{$_SERVER['PHP_SELF']}?status={$code}' alt='{$name} Issues' $style>{$name} Issues</a> | ";
 			}
 		?>
 		<a href="<?php echo $_SERVER['PHP_SELF']; ?>?logout" alt="Logout">Logout [<?php echo $_SESSION['tit']['username']; ?>]</a>
 	</div>
 
+
 	<h1><?php echo $TITLE; ?></h1>
 
-	<h2><a href="#" onclick="document.getElementById('create').className='';document.getElementById('title').focus();"><?php echo ($issue['id']==''?"Create":"Edit"); ?> Issue <?php echo $issue['id'] ?></a></h2>
-	<div id="create" class='<?php echo isset($_GET['editissue'])?'':'hide'; ?>'>
+	<h2><a href="#" onclick="document.getElementById('create').className='';document.getElementById('title').focus();"><?php echo ( empty($issue['id'])?"Create":"Edit"); ?> Issue <?php echo (isset($issue) ? $issue['id'] : '') ?></a></h2>
+	<div id="create" class='<?php echo (isset($_GET['editissue'])?'':'hide'); ?>'>
 		<a href="#" onclick="document.getElementById('create').className='hide';" style="float: right;">[Close]</a>
 		<form method="POST">
-			<input type="hidden" name="id" value="<?php echo $issue['id']; ?>" />
-			<label>Title</label><input type="text" size="50" name="title" id="title" value="<?php echo htmlentities($issue['title']); ?>" />
-			<label>Description</label><textarea name="description" rows="5" cols="50"><?php echo htmlentities($issue['description']); ?></textarea>
-			<label></label><input type="submit" name="createissue" value="<?php echo ($issue['id']==''?"Create":"Edit"); ?>" />
+			<input type="hidden" name="id" value="<?php echo (isset($issue) ? $issue['id'] : ''); ?>" />
+			<label>Title</label><input type="text" size="50" name="title" id="title" value="<?php echo htmlentities((isset($issue['title']) ? $issue['title']:'')); ?>" />
+			<label>Description</label><textarea name="description" rows="5" cols="50"><?php echo htmlentities((isset($issue['description']) ? $issue['description'] : '')); ?></textarea>
+			<label></label><input type="submit" name="createissue" value="<?php echo (empty($issue['id'])?"Create":"Edit"); ?>" />
 <? if (!$issue['id']) { ?>
 			Priority
 				<select name="priority">
@@ -400,7 +413,7 @@ function setWatch($id,$addToWatch){
 
 	<?php if ($mode=="list"): ?>
 	<div id="list">
-	<h2><?php if (isset($STATUSES[$_GET['status']])) echo $STATUSES[$_GET['status']]." "; ?>Issues</h2>
+	<h2><?php if (isset($_GET['status']) && isset($STATUSES[$_GET['status']])) echo $STATUSES[$_GET['status']]." "; ?>Issues</h2>
 		<table border=1 cellpadding=5 width="100%">
 			<tr>
 				<th>ID</th>
@@ -423,7 +436,7 @@ function setWatch($id,$addToWatch){
 				echo "<td>".($_SESSION['tit']['email']&&strpos($issue['notify_emails'],$_SESSION['tit']['email'])!==FALSE?"&#10003;":"")."</td>\n";
 				echo "<td>".($issue['comment_user'] ? date("M j",strtotime($issue['comment_time'])) . " (" . $issue['comment_user'] . ")" : "")."</td>\n";
 				echo "<td><a href='?editissue&id={$issue['id']}'>Edit</a>";
-				if ($_SESSION['tit']['admin'] || $_SESSION['tit']['username']==$issue['user']) echo " | <a href='?deleteissue&id={$issue['id']}' onclick='return confirm(\"Are you sure? All comments will be deleted too.\");'>Delete</a>";
+				if (isset($_SESSION['tit']['admin']) || $_SESSION['tit']['username']==$issue['user']) echo " | <a href='?deleteissue&id={$issue['id']}' onclick='return confirm(\"Are you sure? All comments will be deleted too.\");'>Delete</a>";
 				echo "</td>\n";
 				echo "</tr>\n";
 			}
